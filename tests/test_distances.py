@@ -7,7 +7,10 @@ the tool this kernel is meant to replace.
 
 from __future__ import annotations
 
+import json
 import random
+import subprocess
+import sys
 
 import pytest
 
@@ -60,6 +63,29 @@ def test_empty_batch_returns_empty_list():
     assert myers_batch.distances(b"ACGT", []) == []
 
 
+def test_installed_package_from_clean_process(tmp_path):
+    """The compiled extension and public API work without the repository as cwd."""
+    script = """
+import json
+import myers_batch
+
+print(json.dumps(myers_batch.distances(
+    b"ACGTACGT",
+    [b"TTACGTACGTTT", b"TTTTTTTT", b""],
+)))
+"""
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", script],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == [0, 6, 8]
+
+
 def test_target_shorter_than_query():
     assert myers_batch.distances(b"ACGTACGT", [b"ACGT"]) == [dp_infix(b"ACGTACGT", b"ACGT")]
 
@@ -72,6 +98,18 @@ def test_unknown_bytes_match_only_themselves():
     # N in the query cannot be satisfied by A, so one substitution is required.
     assert myers_batch.distances(b"ANA", [b"AAA"]) == [1]
     assert myers_batch.distances(b"ANA", [b"ANA"]) == [0]
+
+
+def test_different_unknown_bytes_do_not_match():
+    assert myers_batch.distances(b"N", [b"N", b"X", b"?", b"n"]) == [0, 1, 1, 1]
+
+
+def test_unknown_bytes_match_edlib():
+    query = bytes([0, ord("N"), 255])
+    targets = [query, bytes([0, ord("X"), 255]), bytes([255, ord("N"), 0])]
+    assert myers_batch.distances(query, targets) == [
+        edlib_infix(query, target) for target in targets
+    ]
 
 
 # ------------------------------------------------------------------ argument

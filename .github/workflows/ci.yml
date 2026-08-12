@@ -36,4 +36,4 @@ jobs:
         run: python -c "import myers_batch, platform; print(platform.machine(), 'neon=', myers_batch.have_neon(), 'lanes=', myers_batch.lanes())"
       - run: ruff check .
       - run: ruff format --check .
-      - run: python -m pytest -q
+      - run: python -m pytest --cov=myers_batch --cov-branch --cov-report=term-missing --cov-fail-under=100 -q

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "myers-batch"
 version = "0.1.0"
-description = "Batched infix edit distance: bit-parallel Myers vectorized for aarch64 NEON, 11-15x faster than edlib single-threaded"
+description = "Batched infix edit distance: bit-parallel Myers vectorized for aarch64 NEON, 7.5-10x faster than edlib single-threaded"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -35,7 +35,7 @@ Homepage = "https://github.com/bmouler/myers-batch"
 Repository = "https://github.com/bmouler/myers-batch"
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff", "edlib", "numpy"]
+dev = ["pytest", "pytest-cov", "ruff", "edlib", "numpy"]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
@@ -51,3 +51,12 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+[tool.coverage.run]
+branch = true
+source = ["myers_batch"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+skip_covered = true
+

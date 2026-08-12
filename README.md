@@ -1,5 +1,7 @@
 # myers-batch
 
+[![CI](https://github.com/bmouler/myers-batch/actions/workflows/ci.yml/badge.svg)](https://github.com/bmouler/myers-batch/actions/workflows/ci.yml) [![Python branch coverage](https://img.shields.io/badge/Python%20branch%20coverage-100%25-brightgreen)](https://github.com/bmouler/myers-batch/actions/workflows/ci.yml) [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 Batched infix edit distance for DNA. Bit-parallel Myers, vectorized for aarch64 NEON,
 **7.5-10x faster than edlib single-threaded** on identical data, with bit-identical results.
 
@@ -138,6 +140,11 @@ oracles:
 Batch sizes 1-17 plus 63/64/65 are all exercised, so every possible scalar remainder after the
 8-wide blocks is covered, and ragged target lengths are tested explicitly because that is where
 lanes finish at different times and the per-lane scalar tail has to take over.
+
+The CI 100% coverage gate measures the Python API and dispatcher only; it does not claim C line
+coverage for the compiled kernel. Native-kernel correctness is instead checked differentially
+against edlib across randomized and structured inputs, in addition to the independent
+dynamic-programming oracle.
 
 ## Limitations
 

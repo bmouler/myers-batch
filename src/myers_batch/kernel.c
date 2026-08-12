@@ -41,7 +41,7 @@
 #define MYERS_HAVE_NEON 0
 #endif
 
-#define ALPHA 5 /* A C G T + one catch-all symbol */
+#define ALPHA 256 /* one entry per byte; the binding folds canonical DNA case */
 
 /* ---------------------------------------------------------------- helpers */
 

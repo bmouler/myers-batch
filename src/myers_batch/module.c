@@ -18,16 +18,16 @@ void hw_batch_scalar(const uint8_t *pat, int32_t m, const uint8_t *targets, cons
                      const int32_t *tlen, int32_t n_targets, int32_t *out);
 int hw_have_neon(void);
 
-/* ACGT and acgt collapse to 0..3; every other byte becomes a symbol that only
- * matches itself, which is what edlib does with its default alphabet. */
+/* ACGT and acgt collapse to the same four codes. Every other byte retains its
+ * own code, so unknown symbols match only the identical byte. */
 static uint8_t CODE[256];
 
 static void init_code(void) {
-    for (int i = 0; i < 256; i++) CODE[i] = 4;
-    CODE[(unsigned char)'A'] = CODE[(unsigned char)'a'] = 0;
-    CODE[(unsigned char)'C'] = CODE[(unsigned char)'c'] = 1;
-    CODE[(unsigned char)'G'] = CODE[(unsigned char)'g'] = 2;
-    CODE[(unsigned char)'T'] = CODE[(unsigned char)'t'] = 3;
+    for (int i = 0; i < 256; i++) CODE[i] = (uint8_t)i;
+    CODE[(unsigned char)'a'] = CODE[(unsigned char)'A'];
+    CODE[(unsigned char)'c'] = CODE[(unsigned char)'C'];
+    CODE[(unsigned char)'g'] = CODE[(unsigned char)'G'];
+    CODE[(unsigned char)'t'] = CODE[(unsigned char)'T'];
 }
 
 typedef struct {

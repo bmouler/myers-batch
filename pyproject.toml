@@ -37,7 +37,7 @@ Homepage = "https://github.com/bmouler/myers-batch"
 Repository = "https://github.com/bmouler/myers-batch"
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "ruff", "edlib", "numpy", "hypothesis>=6.100"]
+dev = ["pytest", "pytest-cov", "ruff", "edlib", "numpy", "hypothesis>=6.100", "mypy>=1.14,<2"]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
@@ -50,6 +50,7 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 100
+target-version = "py39"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
@@ -65,3 +66,8 @@ fail_under = 100
 show_missing = true
 skip_covered = true
 
+
+[tool.mypy]
+strict = true
+files = ["src"]
+python_version = "3.9"

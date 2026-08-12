@@ -1,5 +1,6 @@
 /*
- * Batched bit-parallel Myers edit distance, infix (HW) semantics, for aarch64 NEON.
+ * Batched bit-parallel Myers edit distance, infix (HW) semantics, for aarch64 NEON
+ * and x86-64 AVX2.
  *
  * Semantics match edlib's mode="HW", task="distance": the minimum edit distance
  * between the full query and any substring of the target. Query length must be
@@ -25,10 +26,11 @@
  * unconditionally. That is what makes the recurrence branch-free and therefore
  * vectorizable across lanes.
  *
- * Every operation is a per-lane 64-bit AND/OR/XOR/NOT/ADD/SHIFT, so two
- * independent alignments fit in one 128-bit NEON register with no cross-lane
- * traffic. The only per-lane divergence is the Peq table lookup, which stays an
- * L1-resident scalar load pair.
+ * Every operation is a per-lane 64-bit AND/OR/XOR/NOT/ADD/SHIFT. The NEON
+ * kernel advances eight alignments as four independent two-lane chains; the
+ * AVX2 kernel advances eight as two independent four-lane chains. The only
+ * per-lane divergence is the Peq table lookup, which stays an L1-resident
+ * scalar load.
  */
 
 #include <stddef.h>
@@ -39,6 +41,13 @@
 #include <arm_neon.h>
 #else
 #define MYERS_HAVE_NEON 0
+#endif
+
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+#define MYERS_HAVE_AVX2 1
+#include <immintrin.h>
+#else
+#define MYERS_HAVE_AVX2 0
 #endif
 
 #define ALPHA 256 /* one entry per byte; the binding folds canonical DNA case */
@@ -357,15 +366,141 @@ void hw_batch_neon8(const uint8_t *pat, int32_t m, const uint8_t *targets, const
 
 #endif /* MYERS_HAVE_NEON */
 
+#if MYERS_HAVE_AVX2
+
+/* ---------------------------------------------- AVX2, two four-lane chains */
+
+#define MYERS_STEP_AVX2(VP, VN, score, best, e0, e1, e2, e3)                  \
+    do {                                                                      \
+        const __m256i Eq = _mm256_set_epi64x((long long)(e3), (long long)(e2), \
+                                             (long long)(e1), (long long)(e0)); \
+        const __m256i Xv = _mm256_or_si256(Eq, VN);                            \
+        const __m256i sum = _mm256_add_epi64(_mm256_and_si256(Eq, VP), VP);    \
+        const __m256i Xh = _mm256_or_si256(_mm256_xor_si256(sum, VP), Eq);     \
+        const __m256i Ph = _mm256_or_si256(                                    \
+            VN, _mm256_xor_si256(_mm256_or_si256(Xh, VP), ones));              \
+        const __m256i Mh = _mm256_and_si256(VP, Xh);                           \
+        const __m256i pinc =                                                   \
+            _mm256_srl_epi64(_mm256_and_si256(Ph, maskv), shrv);               \
+        const __m256i minc =                                                   \
+            _mm256_srl_epi64(_mm256_and_si256(Mh, maskv), shrv);               \
+        score = _mm256_sub_epi64(_mm256_add_epi64(score, pinc), minc);         \
+        best = _mm256_blendv_epi8(best, score, _mm256_cmpgt_epi64(best, score)); \
+        const __m256i Ph1 = _mm256_slli_epi64(Ph, 1);                          \
+        const __m256i Mh1 = _mm256_slli_epi64(Mh, 1);                          \
+        VP = _mm256_or_si256(                                                  \
+            Mh1, _mm256_xor_si256(_mm256_or_si256(Xv, Ph1), ones));            \
+        VN = _mm256_and_si256(Ph1, Xv);                                        \
+    } while (0)
+
+__attribute__((target("avx2"))) static void hw_oct_avx2(
+    const uint64_t peq[ALPHA], int m, const uint8_t *const t[8], const int32_t n[8],
+    int32_t *out) {
+    const int shift = m - 1;
+    const uint64_t maskw = (uint64_t)1 << shift;
+    const __m256i maskv = _mm256_set1_epi64x((long long)maskw);
+    const __m128i shrv = _mm_cvtsi32_si128(shift);
+    const __m256i ones = _mm256_set1_epi64x(-1);
+
+    __m256i VP[2], VN[2], sc[2], bs[2];
+    for (int c = 0; c < 2; c++) {
+        VP[c] = ones;
+        VN[c] = _mm256_setzero_si256();
+        sc[c] = _mm256_set1_epi64x(m);
+        bs[c] = _mm256_set1_epi64x(m);
+    }
+
+    int32_t nmin = n[0];
+    for (int i = 1; i < 8; i++)
+        if (n[i] < nmin) nmin = n[i];
+
+    for (int32_t i = 0; i < nmin; i++) {
+        MYERS_STEP_AVX2(VP[0], VN[0], sc[0], bs[0], peq[t[0][i]], peq[t[1][i]],
+                        peq[t[2][i]], peq[t[3][i]]);
+        MYERS_STEP_AVX2(VP[1], VN[1], sc[1], bs[1], peq[t[4][i]], peq[t[5][i]],
+                        peq[t[6][i]], peq[t[7][i]]);
+    }
+
+    for (int c = 0; c < 2; c++) {
+        uint64_t vp_tmp[4], vn_tmp[4];
+        int64_t sc_tmp[4], bs_tmp[4];
+        _mm256_storeu_si256((__m256i *)(void *)vp_tmp, VP[c]);
+        _mm256_storeu_si256((__m256i *)(void *)vn_tmp, VN[c]);
+        _mm256_storeu_si256((__m256i *)(void *)sc_tmp, sc[c]);
+        _mm256_storeu_si256((__m256i *)(void *)bs_tmp, bs[c]);
+        for (int l = 0; l < 4; l++) {
+            const int j = 4 * c + l;
+            myers_state s = {vp_tmp[l], vn_tmp[l], (int32_t)sc_tmp[l], (int32_t)bs_tmp[l]};
+            if (n[j] > nmin)
+                scalar_run(&s, peq, maskw, shift, t[j] + nmin, n[j] - nmin);
+            out[j] = s.best;
+        }
+    }
+}
+
+__attribute__((target("avx2"))) static void hw_batch_avx2(
+    const uint8_t *pat, int32_t m, const uint8_t *targets, const int32_t *toff,
+    const int32_t *tlen, int32_t n_targets, int32_t *out) {
+    uint64_t peq[ALPHA];
+    build_peq(pat, m, peq);
+    const uint64_t mask = (uint64_t)1 << (m - 1);
+    const int shift = m - 1;
+
+    int32_t k = 0;
+    for (; k + 7 < n_targets; k += 8) {
+        const uint8_t *t[8];
+        int32_t n[8];
+        for (int j = 0; j < 8; j++) {
+            t[j] = targets + toff[k + j];
+            n[j] = tlen[k + j];
+        }
+        hw_oct_avx2(peq, m, t, n, out + k);
+    }
+    for (; k < n_targets; k++) {
+        myers_state s;
+        state_init(&s, m);
+        scalar_run(&s, peq, mask, shift, targets + toff[k], tlen[k]);
+        out[k] = s.best;
+    }
+}
+
+#undef MYERS_STEP_AVX2
+
+static int avx2_available(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        __builtin_cpu_init();
+        cached = __builtin_cpu_supports("avx2") ? 1 : 0;
+    }
+    return cached;
+}
+
+#endif /* MYERS_HAVE_AVX2 */
+
 /* ------------------------------------------------------------- dispatcher */
 
-/* Widest available path: four-chain NEON on aarch64, scalar everywhere else. */
+/* Widest available path: eight lanes via NEON or AVX2, scalar otherwise. */
 void hw_batch(const uint8_t *pat, int32_t m, const uint8_t *targets, const int32_t *toff,
               const int32_t *tlen, int32_t n_targets, int32_t *out) {
 #if MYERS_HAVE_NEON
     hw_batch_neon8(pat, m, targets, toff, tlen, n_targets, out);
+#elif MYERS_HAVE_AVX2
+    if (avx2_available())
+        hw_batch_avx2(pat, m, targets, toff, tlen, n_targets, out);
+    else
+        hw_batch_scalar(pat, m, targets, toff, tlen, n_targets, out);
 #else
     hw_batch_scalar(pat, m, targets, toff, tlen, n_targets, out);
+#endif
+}
+
+int hw_simd_backend(void) {
+#if MYERS_HAVE_NEON
+    return 2;
+#elif MYERS_HAVE_AVX2
+    return avx2_available() ? 1 : 0;
+#else
+    return 0;
 #endif
 }
 

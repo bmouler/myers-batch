@@ -8,6 +8,7 @@ the tool this kernel is meant to replace.
 from __future__ import annotations
 
 import json
+import os
 import random
 import subprocess
 import sys
@@ -220,12 +221,19 @@ def test_differential_against_edlib_adapter():
 # ------------------------------------------------------------------ plumbing
 
 
-def test_have_neon_matches_platform():
-    import platform
+def test_simd_backend_matches_platform():
+    backend = myers_batch.simd_backend()
+    assert backend in {"neon", "avx2", "scalar"}
+    assert myers_batch.have_neon() == (backend == "neon")
+    assert myers_batch.lanes() == (1 if backend == "scalar" else 8)
 
-    expected = platform.machine() in {"arm64", "aarch64"}
-    assert myers_batch.have_neon() is expected
-    assert myers_batch.lanes() == (8 if expected else 1)
+
+@pytest.mark.skipif(
+    not os.environ.get("MYERS_EXPECT_SIMD"),
+    reason="only meaningful under CI expectation",
+)
+def test_ci_backend_matches_expectation() -> None:
+    assert myers_batch.simd_backend() == os.environ["MYERS_EXPECT_SIMD"]
 
 
 def test_accepts_memoryview_and_bytearray():

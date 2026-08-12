@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "myers-batch"
 version = "0.1.0"
-description = "Batched infix edit distance: bit-parallel Myers vectorized for aarch64 NEON, 7.5-10x faster than edlib single-threaded"
+description = "Batched infix edit distance: bit-parallel Myers for aarch64 NEON and x86-64 AVX2, 7.5-10x faster than edlib single-threaded on the reference machine"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -19,6 +19,8 @@ keywords = [
   "neon",
   "simd",
   "aarch64",
+  "avx2",
+  "x86-64",
   "adapter-trimming",
   "demultiplexing",
 ]
@@ -39,6 +41,9 @@ dev = ["pytest", "pytest-cov", "ruff", "edlib", "numpy"]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
+
+[tool.setuptools.package-data]
+myers_batch = ["py.typed", "*.pyi"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

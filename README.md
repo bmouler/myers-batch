@@ -2,8 +2,9 @@
 
 [![CI](https://github.com/bmouler/myers-batch/actions/workflows/ci.yml/badge.svg)](https://github.com/bmouler/myers-batch/actions/workflows/ci.yml) [![Python branch coverage](https://img.shields.io/badge/Python%20branch%20coverage-100%25-brightgreen)](https://github.com/bmouler/myers-batch/actions/workflows/ci.yml) [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Batched infix edit distance for DNA. Bit-parallel Myers, vectorized for aarch64 NEON,
-**7.5-10x faster than edlib single-threaded** on identical data, with bit-identical results.
+Batched infix edit distance for DNA. Bit-parallel Myers on aarch64 NEON and x86-64 AVX2,
+runtime-dispatched, **7.5-10x faster than edlib single-threaded** on the reference machine,
+with bit-identical results.
 
 Adapter trimming, primer matching, barcode and UMI demultiplexing, and probe search all reduce
 to the same question asked hundreds of millions of times: what is the minimum edit distance
@@ -40,6 +41,10 @@ Reproduce with `python bench/bench.py`. It refuses to print timings unless every
 matches edlib first. Numbers below are one run, typical of three consecutive runs: this
 kernel varies about 2% run to run, edlib about 5%, so treat the headline as 7.5-10x rather
 than any single decimal.
+
+These timings were measured on an Apple M3 Max and exercise the NEON kernel. No x86-64
+timing is quoted because none was measured; x86-64 CI establishes AVX2 activation and
+bit-identical correctness, not a performance claim.
 
 ```
 machine : macOS-15.5-arm64-arm-64bit / arm64
@@ -112,21 +117,25 @@ Three properties make it vectorize cleanly:
    of `VP`, and `Ph & VP == 0` because `VP & VN == 0`. So both updates apply unconditionally
    instead of as an `if/else if`, which is what lets lanes proceed in lockstep.
 2. **Every operation is per-lane 64-bit.** AND, OR, XOR, NOT, ADD, SHIFT. The carry in
-   `(Eq & VP) + VP` propagates upward within a lane and never crosses lanes, so two independent
-   alignments fit in one 128-bit register with zero shuffle traffic.
+   `(Eq & VP) + VP` propagates upward within a lane and never crosses lanes. NEON therefore
+   uses four independent chains of two 64-bit lanes; AVX2 uses two independent chains of
+   four lanes. Both advance eight targets per iteration without cross-lane shuffles.
 3. **The loop is latency-bound, not throughput-bound.** The add feeds the xor feeds the or feeds
-   the next iteration. Two lanes measured only 1.26x over scalar; four lanes across two
-   independent register chains gave 2.35x, and eight lanes across four chains gave 3.61x, using
-   16 of the 32 vector registers with no spills. That progression is the whole optimization.
+   the next iteration. The independent chains let the scheduler overlap that latency. On the
+   reference M3 Max, two NEON lanes measured only 1.26x over scalar; four lanes across two
+   chains gave 2.35x, and eight lanes across four chains gave 3.61x, using 16 of 32 vector
+   registers with no spills.
 
 Infix semantics come from the horizontal carry into the shift being zero, mirroring edlib's
 `calculateBlock` with `hin == 0`. A carry of one would give global (NW) distance instead.
 
-All four widths stay in the C API as `hw_batch_scalar`, `hw_batch_neon`, `hw_batch_neon4` and
-`hw_batch_neon8`, plus `hw_batch` which selects the widest path available at compile time and
-`hw_matrix_neon` for many queries against many targets. Python exposes the dispatcher as
-`distances` and the portable path as `distances_scalar`; the intermediate widths are kept so the
-scaling numbers above can be re-measured rather than taken on faith.
+The C API retains the scalar and NEON widths for differential measurement. The public
+`hw_batch` dispatcher selects NEON at compile time on aarch64, checks
+`__builtin_cpu_supports("avx2")` at runtime on x86-64, and otherwise selects the portable
+scalar kernel. The AVX2 functions carry a per-function `target("avx2")` attribute, so wheels
+remain portable and AVX2 instructions are isolated from the fallback path. Python exposes
+the dispatcher as `distances`, the portable path as `distances_scalar`, and the active
+selection as `simd_backend`.
 
 ## Correctness
 
@@ -139,7 +148,9 @@ oracles:
 
 Batch sizes 1-17 plus 63/64/65 are all exercised, so every possible scalar remainder after the
 8-wide blocks is covered, and ragged target lengths are tested explicitly because that is where
-lanes finish at different times and the per-lane scalar tail has to take over.
+lanes finish at different times and the per-lane scalar tail has to take over. CI requires the
+NEON backend on aarch64 and AVX2 on hosted x86-64, then checks both against edlib and the scalar
+implementation for bit-identical output.
 
 The CI 100% coverage gate measures the Python API and dispatcher only; it does not claim C line
 coverage for the compiled kernel. Native-kernel correctness is instead checked differentially
@@ -156,14 +167,14 @@ dynamic-programming oracle.
 - **No Ukkonen banding.** edlib can early-terminate under a `k` cutoff; this kernel always scans
   the full target. It still wins at the cutoffs benchmarked above, but for very long targets with
   a very small `k` that advantage will narrow and could reverse.
-- **The fast path is aarch64.** On x86 the build falls back to the portable scalar path, which
-  keeps the batching win but not the vectorization. That configuration is exercised in CI for
-  correctness but has not been benchmarked, so no x86 speed claim is made here.
+- **Two SIMD ISAs, no generic-vector fallback.** aarch64 uses NEON and supported x86-64 CPUs use
+  AVX2; other CPUs use the portable scalar kernel. The AVX2 path is activated and compared
+  against edlib on x86-64 CI, but no x86 speed claim is made because none was benchmarked.
 
 ## Non-goals
 
 Not a general alignment library, not a replacement for edlib's full feature set, and not a
-scoring-matrix aligner. It does one kernel, on one class of hardware, faster.
+scoring-matrix aligner. It does one kernel on two ISAs (NEON, AVX2), faster.
 
 ## License
 

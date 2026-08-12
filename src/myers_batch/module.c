@@ -17,6 +17,7 @@ void hw_batch(const uint8_t *pat, int32_t m, const uint8_t *targets, const int32
 void hw_batch_scalar(const uint8_t *pat, int32_t m, const uint8_t *targets, const int32_t *toff,
                      const int32_t *tlen, int32_t n_targets, int32_t *out);
 int hw_have_neon(void);
+int hw_simd_backend(void);
 
 /* ACGT and acgt collapse to the same four codes. Every other byte retains its
  * own code, so unknown symbols match only the identical byte. */
@@ -176,6 +177,13 @@ static PyObject *py_have_neon(PyObject *self, PyObject *noargs) {
     return PyBool_FromLong(hw_have_neon());
 }
 
+static PyObject *py_simd_backend(PyObject *self, PyObject *noargs) {
+    (void)self;
+    (void)noargs;
+    const int backend = hw_simd_backend();
+    return PyUnicode_FromString(backend == 2 ? "neon" : backend == 1 ? "avx2" : "scalar");
+}
+
 static PyMethodDef methods[] = {
     {"distances", py_distances, METH_VARARGS,
      "distances(query, targets) -> list[int]\n\n"
@@ -186,6 +194,8 @@ static PyMethodDef methods[] = {
      "Same result via the portable scalar path. Used for differential testing."},
     {"have_neon", py_have_neon, METH_NOARGS,
      "have_neon() -> bool\n\nTrue when the aarch64 NEON path is compiled in."},
+    {"simd_backend", py_simd_backend, METH_NOARGS,
+     "simd_backend() -> str\n\nActive kernel: 'neon', 'avx2', or 'scalar'."},
     {NULL, NULL, 0, NULL},
 };
 

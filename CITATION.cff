@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it.
+type: software
+title: myers-batch
+abstract: "Batched infix edit distance: bit-parallel Myers for aarch64 NEON and x86-64 AVX2, 7.5-10x faster than edlib single-threaded on the reference machine"
+authors:
+  - family-names: Mouler
+    given-names: Bert
+license: MIT
+repository-code: https://github.com/bmouler/myers-batch
+version: 1.0.0
+date-released: "2026-08-12"

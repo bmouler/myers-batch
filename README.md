@@ -1,6 +1,11 @@
 # myers-batch
 
-[![CI](https://github.com/bmouler/myers-batch/actions/workflows/ci.yml/badge.svg)](https://github.com/bmouler/myers-batch/actions/workflows/ci.yml) [![Python branch coverage](https://img.shields.io/badge/Python%20branch%20coverage-100%25-brightgreen)](https://github.com/bmouler/myers-batch/actions/workflows/ci.yml) [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![CI](https://github.com/bmouler/myers-batch/actions/workflows/ci.yml/badge.svg)](https://github.com/bmouler/myers-batch/actions/workflows/ci.yml)
+![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)
+![Types](https://img.shields.io/badge/types-mypy%20strict-blue)
+![SIMD](https://img.shields.io/badge/SIMD-NEON%20%2B%20AVX2-blue)
+![Python](https://img.shields.io/badge/python-3.9%2B-blue)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 Batched infix edit distance for DNA. Bit-parallel Myers on aarch64 NEON and x86-64 AVX2,
 runtime-dispatched, **7.5-10x faster than edlib single-threaded** on the reference machine,
@@ -16,11 +21,17 @@ floor: it takes the whole batch in one call, and it runs eight alignments per in
 
 ## Install
 
-```
-pip install -e .
+```console
+python -m pip install myers-batch
 ```
 
-Not on PyPI yet. Building needs a C compiler; there are no runtime dependencies.
+For editable development:
+
+```console
+python -m pip install -e ".[dev]"
+```
+
+Building needs a C compiler; there are no runtime dependencies.
 
 ## Quickstart
 
@@ -97,6 +108,10 @@ edlib is single-threaded by design, so comparing 8 threads against 1 measures th
 not the kernel.
 
 ## How it works
+
+```mermaid
+flowchart LR; Q[query ≤64 bp] --> P[Peq table 256×u64]; T[targets, packed batch] --> G{group of 8}; P --> K; G --> K[8 lockstep Myers chains<br/>NEON 2×u64 ×4 / AVX2 4×u64 ×2]; K --> F[per-lane scalar finish]; F --> O[min infix distance per target]
+```
 
 The recurrence is Hyyro's formulation of Myers (1999), the same one edlib uses. Per target
 character, with `VP`/`VN` the vertical delta bitvectors:

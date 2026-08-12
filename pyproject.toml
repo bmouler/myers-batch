@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "myers-batch"
+version = "0.1.0"
+description = "Batched infix edit distance: bit-parallel Myers vectorized for aarch64 NEON, 11-15x faster than edlib single-threaded"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [{ name = "Bert Mouler" }]
+keywords = [
+  "bioinformatics",
+  "edit-distance",
+  "sequence-alignment",
+  "myers",
+  "levenshtein",
+  "neon",
+  "simd",
+  "aarch64",
+  "adapter-trimming",
+  "demultiplexing",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: C",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+[project.urls]
+Homepage = "https://github.com/bmouler/myers-batch"
+Repository = "https://github.com/bmouler/myers-batch"
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "edlib", "numpy"]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

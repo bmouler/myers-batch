@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # aarch64: exercises the NEON path
+          - os: macos-14
+            python: "3.11"
+          - os: macos-14
+            python: "3.13"
+          # x86_64: exercises the portable scalar fallback
+          - os: ubuntu-latest
+            python: "3.9"
+          - os: ubuntu-latest
+            python: "3.11"
+          - os: ubuntu-latest
+            python: "3.13"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[dev]"
+      - name: Report which kernel was compiled
+        run: python -c "import myers_batch, platform; print(platform.machine(), 'neon=', myers_batch.have_neon(), 'lanes=', myers_batch.lanes())"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: python -m pytest -q

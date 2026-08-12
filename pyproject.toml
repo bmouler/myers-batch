@@ -37,7 +37,7 @@ Homepage = "https://github.com/bmouler/myers-batch"
 Repository = "https://github.com/bmouler/myers-batch"
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "ruff", "edlib", "numpy"]
+dev = ["pytest", "pytest-cov", "ruff", "edlib", "numpy", "hypothesis>=6.100"]
 
 [tool.setuptools]
 package-dir = { "" = "src" }

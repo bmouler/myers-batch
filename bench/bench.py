@@ -9,16 +9,19 @@ Usage:  python bench/bench.py
 
 from __future__ import annotations
 
+import argparse
+import hashlib
+import json
 import platform
+import random
 import statistics
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-import edlib
-
 import myers_batch
 
 ALPHABET = b"ACGT"
+E2E_EXPECTED_SHA256 = "26b487d016a5afc7c4f35f42af23912125aaacbb93845a7b6dc4522922316ba0"
 
 
 def make_reads(rng, n, read_len, query, hit_rate=0.7, max_err=3):
@@ -100,8 +103,83 @@ def case(rng, label, query, n_reads, read_len, k_values, threads=0):
         )
 
 
+def mixed_workload():
+    """Deterministic ragged sequencer batch for end-to-end API measurement."""
+    rng = random.Random(20260815)
+    query = b"AGATCGGAAGAGCACACGTCTGAACTCCAGTCA"
+    lengths = (75, 100, 125, 150, 180, 220, 260, 300)
+    reads = []
+    for _ in range(100_000):
+        n = rng.choice(lengths)
+        read = bytearray(rng.choice(ALPHABET) for _ in range(n))
+        if rng.random() < 0.7:
+            pos = rng.randrange(n - len(query) + 1)
+            read[pos : pos + len(query)] = query
+            for _ in range(rng.randrange(4)):
+                read[rng.randrange(n)] = rng.choice(ALPHABET)
+        reads.append(bytes(read))
+    return query, reads, lengths
+
+
+def measured_samples(fn, expected, warmups=3, repeats=11):
+    for _ in range(warmups):
+        if fn() != expected:
+            raise SystemExit("MISMATCH: measured result changed during warmup")
+    samples = []
+    for _ in range(repeats):
+        start = time.perf_counter_ns()
+        result = fn()
+        samples.append(time.perf_counter_ns() - start)
+        if result != expected:
+            raise SystemExit("MISMATCH: measured result changed between timed samples")
+    return samples
+
+
+def e2e_result():
+    query, reads, lengths = mixed_workload()
+    scalar = myers_batch.distances_scalar(query, reads)
+    public = myers_batch.distances(query, reads)
+    if public != scalar:
+        raise SystemExit("MISMATCH: public dispatcher differs from scalar oracle")
+    samples = measured_samples(lambda: myers_batch.distances(query, reads), scalar)
+    digest = hashlib.sha256(
+        b"".join(distance.to_bytes(4, "little", signed=True) for distance in public)
+    ).hexdigest()
+    if digest != E2E_EXPECTED_SHA256:
+        raise SystemExit(f"MISMATCH: expected result digest {E2E_EXPECTED_SHA256}, got {digest}")
+    scalar_samples = measured_samples(lambda: myers_batch.distances_scalar(query, reads), scalar)
+    return {
+        "workload": "distances(query, targets) mixed-length sequencer batch",
+        "backend": myers_batch.simd_backend(),
+        "query_length": len(query),
+        "targets": len(reads),
+        "target_lengths": list(lengths),
+        "target_bytes": sum(map(len, reads)),
+        "warmups": 3,
+        "samples": len(samples),
+        "sample_ms": [round(ns / 1e6, 6) for ns in samples],
+        "median_ms": round(statistics.median(samples) / 1e6, 6),
+        "min_ms": round(min(samples) / 1e6, 6),
+        "max_ms": round(max(samples) / 1e6, 6),
+        "scalar_equivalent": True,
+        "scalar_median_ms": round(statistics.median(scalar_samples) / 1e6, 6),
+        "sha256_int32_le": digest,
+    }
+
+
 def main() -> None:
-    import random
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--e2e-json",
+        action="store_true",
+        help="run the deterministic 11-sample public-API benchmark and emit JSON",
+    )
+    args = parser.parse_args()
+    if args.e2e_json:
+        print(json.dumps(e2e_result(), sort_keys=True))
+        return
+    global edlib
+    import edlib
 
     rng = random.Random(20260812)
     print(f"machine : {platform.platform()} / {platform.machine()}")

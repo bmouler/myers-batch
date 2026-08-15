@@ -50,13 +50,28 @@
 #define MYERS_HAVE_AVX2 0
 #endif
 
-#define ALPHA 256 /* one entry per byte; the binding folds canonical DNA case */
+#define ALPHA 256 /* one entry per byte; canonical DNA case is folded in Peq */
 
 /* ---------------------------------------------------------------- helpers */
 
 static inline void build_peq(const uint8_t *pat, int m, uint64_t peq[ALPHA]) {
     for (int c = 0; c < ALPHA; c++) peq[c] = 0;
-    for (int j = 0; j < m; j++) peq[pat[j]] |= (uint64_t)1 << j;
+    for (int j = 0; j < m; j++) {
+        const uint8_t c = pat[j];
+        const uint64_t bit = (uint64_t)1 << j;
+        peq[c] |= bit;
+        switch (c) {
+            case 'A': peq[(unsigned char)'a'] |= bit; break;
+            case 'a': peq[(unsigned char)'A'] |= bit; break;
+            case 'C': peq[(unsigned char)'c'] |= bit; break;
+            case 'c': peq[(unsigned char)'C'] |= bit; break;
+            case 'G': peq[(unsigned char)'g'] |= bit; break;
+            case 'g': peq[(unsigned char)'G'] |= bit; break;
+            case 'T': peq[(unsigned char)'t'] |= bit; break;
+            case 't': peq[(unsigned char)'T'] |= bit; break;
+            default: break;
+        }
+    }
 }
 
 #if MYERS_HAVE_NEON
@@ -104,7 +119,7 @@ static inline void scalar_run(myers_state *s, const uint64_t peq[ALPHA], uint64_
 }
 
 /* One query against many targets, scalar reference path. */
-void hw_batch_scalar(const uint8_t *pat, int32_t m, const uint8_t *targets, const int32_t *toff,
+void hw_batch_scalar(const uint8_t *pat, int32_t m, const uint8_t *const *targets,
                      const int32_t *tlen, int32_t n_targets, int32_t *out) {
     uint64_t peq[ALPHA];
     build_peq(pat, m, peq);
@@ -113,7 +128,7 @@ void hw_batch_scalar(const uint8_t *pat, int32_t m, const uint8_t *targets, cons
     for (int32_t k = 0; k < n_targets; k++) {
         myers_state s;
         state_init(&s, m);
-        scalar_run(&s, peq, mask, shift, targets + toff[k], tlen[k]);
+        scalar_run(&s, peq, mask, shift, targets[k], tlen[k]);
         out[k] = s.best;
     }
 }
@@ -173,7 +188,7 @@ static void hw_pair_neon(const uint64_t peq[ALPHA], int m, const uint8_t *t0, in
 }
 
 /* One query against many targets, two alignments per NEON register. */
-void hw_batch_neon(const uint8_t *pat, int32_t m, const uint8_t *targets, const int32_t *toff,
+void hw_batch_neon(const uint8_t *pat, int32_t m, const uint8_t *const *targets,
                    const int32_t *tlen, int32_t n_targets, int32_t *out) {
     uint64_t peq[ALPHA];
     build_peq(pat, m, peq);
@@ -182,23 +197,23 @@ void hw_batch_neon(const uint8_t *pat, int32_t m, const uint8_t *targets, const 
 
     int32_t k = 0;
     for (; k + 1 < n_targets; k += 2) {
-        hw_pair_neon(peq, m, targets + toff[k], tlen[k], targets + toff[k + 1], tlen[k + 1], out + k,
+        hw_pair_neon(peq, m, targets[k], tlen[k], targets[k + 1], tlen[k + 1], out + k,
                      out + k + 1);
     }
     for (; k < n_targets; k++) {
         myers_state s;
         state_init(&s, m);
-        scalar_run(&s, peq, mask, shift, targets + toff[k], tlen[k]);
+        scalar_run(&s, peq, mask, shift, targets[k], tlen[k]);
         out[k] = s.best;
     }
 }
 
 /* Many queries against many targets; returns a query-major distance matrix. */
 void hw_matrix_neon(const uint8_t *pats, const int32_t *poff, const int32_t *plen, int32_t n_pats,
-                    const uint8_t *targets, const int32_t *toff, const int32_t *tlen,
-                    int32_t n_targets, int32_t *out) {
+                    const uint8_t *const *targets, const int32_t *tlen, int32_t n_targets,
+                    int32_t *out) {
     for (int32_t p = 0; p < n_pats; p++) {
-        hw_batch_neon(pats + poff[p], plen[p], targets, toff, tlen, n_targets,
+        hw_batch_neon(pats + poff[p], plen[p], targets, tlen, n_targets,
                       out + (size_t)p * n_targets);
     }
 }
@@ -271,7 +286,7 @@ static void hw_quad_neon(const uint64_t peq[ALPHA], int m, const uint8_t *const 
 }
 
 /* One query against many targets, four alignments per iteration. */
-void hw_batch_neon4(const uint8_t *pat, int32_t m, const uint8_t *targets, const int32_t *toff,
+void hw_batch_neon4(const uint8_t *pat, int32_t m, const uint8_t *const *targets,
                     const int32_t *tlen, int32_t n_targets, int32_t *out) {
     uint64_t peq[ALPHA];
     build_peq(pat, m, peq);
@@ -280,15 +295,15 @@ void hw_batch_neon4(const uint8_t *pat, int32_t m, const uint8_t *targets, const
 
     int32_t k = 0;
     for (; k + 3 < n_targets; k += 4) {
-        const uint8_t *t[4] = {targets + toff[k], targets + toff[k + 1], targets + toff[k + 2],
-                               targets + toff[k + 3]};
+        const uint8_t *t[4] = {targets[k], targets[k + 1], targets[k + 2],
+                               targets[k + 3]};
         const int32_t n[4] = {tlen[k], tlen[k + 1], tlen[k + 2], tlen[k + 3]};
         hw_quad_neon(peq, m, t, n, out + k);
     }
     for (; k < n_targets; k++) {
         myers_state s;
         state_init(&s, m);
-        scalar_run(&s, peq, mask, shift, targets + toff[k], tlen[k]);
+        scalar_run(&s, peq, mask, shift, targets[k], tlen[k]);
         out[k] = s.best;
     }
 }
@@ -339,7 +354,7 @@ static void hw_oct_neon(const uint64_t peq[ALPHA], int m, const uint8_t *const t
 }
 
 /* One query against many targets, eight alignments per iteration. */
-void hw_batch_neon8(const uint8_t *pat, int32_t m, const uint8_t *targets, const int32_t *toff,
+void hw_batch_neon8(const uint8_t *pat, int32_t m, const uint8_t *const *targets,
                     const int32_t *tlen, int32_t n_targets, int32_t *out) {
     uint64_t peq[ALPHA];
     build_peq(pat, m, peq);
@@ -351,7 +366,7 @@ void hw_batch_neon8(const uint8_t *pat, int32_t m, const uint8_t *targets, const
         const uint8_t *t[8];
         int32_t n[8];
         for (int j = 0; j < 8; j++) {
-            t[j] = targets + toff[k + j];
+            t[j] = targets[k + j];
             n[j] = tlen[k + j];
         }
         hw_oct_neon(peq, m, t, n, out + k);
@@ -359,7 +374,7 @@ void hw_batch_neon8(const uint8_t *pat, int32_t m, const uint8_t *targets, const
     for (; k < n_targets; k++) {
         myers_state s;
         state_init(&s, m);
-        scalar_run(&s, peq, mask, shift, targets + toff[k], tlen[k]);
+        scalar_run(&s, peq, mask, shift, targets[k], tlen[k]);
         out[k] = s.best;
     }
 }
@@ -439,7 +454,7 @@ __attribute__((target("avx2"))) static void hw_oct_avx2(
 }
 
 __attribute__((target("avx2"))) static void hw_batch_avx2(
-    const uint8_t *pat, int32_t m, const uint8_t *targets, const int32_t *toff,
+    const uint8_t *pat, int32_t m, const uint8_t *const *targets,
     const int32_t *tlen, int32_t n_targets, int32_t *out) {
     uint64_t peq[ALPHA];
     build_peq(pat, m, peq);
@@ -451,7 +466,7 @@ __attribute__((target("avx2"))) static void hw_batch_avx2(
         const uint8_t *t[8];
         int32_t n[8];
         for (int j = 0; j < 8; j++) {
-            t[j] = targets + toff[k + j];
+            t[j] = targets[k + j];
             n[j] = tlen[k + j];
         }
         hw_oct_avx2(peq, m, t, n, out + k);
@@ -459,7 +474,7 @@ __attribute__((target("avx2"))) static void hw_batch_avx2(
     for (; k < n_targets; k++) {
         myers_state s;
         state_init(&s, m);
-        scalar_run(&s, peq, mask, shift, targets + toff[k], tlen[k]);
+        scalar_run(&s, peq, mask, shift, targets[k], tlen[k]);
         out[k] = s.best;
     }
 }
@@ -480,17 +495,17 @@ static int avx2_available(void) {
 /* ------------------------------------------------------------- dispatcher */
 
 /* Widest available path: eight lanes via NEON or AVX2, scalar otherwise. */
-void hw_batch(const uint8_t *pat, int32_t m, const uint8_t *targets, const int32_t *toff,
+void hw_batch(const uint8_t *pat, int32_t m, const uint8_t *const *targets,
               const int32_t *tlen, int32_t n_targets, int32_t *out) {
 #if MYERS_HAVE_NEON
-    hw_batch_neon8(pat, m, targets, toff, tlen, n_targets, out);
+    hw_batch_neon8(pat, m, targets, tlen, n_targets, out);
 #elif MYERS_HAVE_AVX2
     if (avx2_available())
-        hw_batch_avx2(pat, m, targets, toff, tlen, n_targets, out);
+        hw_batch_avx2(pat, m, targets, tlen, n_targets, out);
     else
-        hw_batch_scalar(pat, m, targets, toff, tlen, n_targets, out);
+        hw_batch_scalar(pat, m, targets, tlen, n_targets, out);
 #else
-    hw_batch_scalar(pat, m, targets, toff, tlen, n_targets, out);
+    hw_batch_scalar(pat, m, targets, tlen, n_targets, out);
 #endif
 }
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+- Grouped ragged targets by length before SIMD execution and bypassed grouping for uniform and empty batches, preserving scalar-equivalent results.
+- Added a deterministic mixed-length end-to-end benchmark and retained safe snapshots for mutable buffer exporters.
+
+
 ## [1.0.0] - 2026-08-12
 
 First stable release.

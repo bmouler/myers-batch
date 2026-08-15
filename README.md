@@ -107,6 +107,25 @@ The multi-threaded row is listed for completeness and is deliberately excluded f
 edlib is single-threaded by design, so comparing 8 threads against 1 measures the thread count,
 not the kernel.
 
+### End-to-end batch throughput
+
+The edlib comparison above isolates the kernel's external position. A second benchmark measures
+the improvement over the pre-change `myers-batch` API itself:
+
+```console
+PYTHONPATH=src python bench/bench.py --e2e-json
+```
+
+It materializes distances for 100,000 mixed-length targets totaling 17,635,600 bytes and checks
+the complete result against the scalar kernel. On the same Apple M3 Max with CPython 3.11.12 on
+2026-08-15, 11 samples after three warmups measured frozen baseline `4821adc9e51d` at
+**42.541 ms** median and length-grouped NEON dispatch at **18.201 ms**, a **2.337x speedup**.
+Both runs produced SHA-256
+`26b487d016a5afc7c4f35f42af23912125aaacbb93845a7b6dc4522922316ba0`. Target
+generation and interpreter startup are excluded; validation, buffer packing, native execution,
+and Python-list materialization are included. Rebuild the extension in each worktree before a
+direct comparison.
+
 ## How it works
 
 ```mermaid

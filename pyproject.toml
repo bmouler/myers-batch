@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "myers-batch"
-version = "1.0.0"
+version = "1.0.1"
 description = "Batched infix edit distance: bit-parallel Myers for aarch64 NEON and x86-64 AVX2, 7.5-10x faster than edlib single-threaded on the reference machine"
 readme = "README.md"
 requires-python = ">=3.9"

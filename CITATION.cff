@@ -8,5 +8,5 @@ authors:
     given-names: Bert
 license: MIT
 repository-code: https://github.com/bmouler/myers-batch
-version: 1.0.0
-date-released: "2026-08-12"
+version: 1.0.1
+date-released: "2026-08-15"

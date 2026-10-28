@@ -16,7 +16,7 @@ jobs:
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-14]
     steps:
       - uses: actions/checkout@v7
-      - uses: pypa/cibuildwheel@v4.2.0
+      - uses: pypa/cibuildwheel@v4.3.4
         env:
           CIBW_ARCHS: native
           CIBW_BUILD: cp39-* cp311-* cp312-* cp313-*
